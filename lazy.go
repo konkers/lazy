@@ -1,6 +1,7 @@
 package lazy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 )
 
 var typeOfError = reflect.TypeOf((*error)(nil)).Elem()
+var typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
 
 type Response struct {
 	Error string      `json:"error,omitempt"`
@@ -80,12 +82,16 @@ func (e *endpoint) findGet() error {
 
 	t := getMethod.Type
 
-	if t.NumIn() != 2 {
-		return fmt.Errorf("Get method need 2 arguments, has %d", t.NumIn())
+	if t.NumIn() != 3 {
+		return fmt.Errorf("Get method need 3 arguments, has %d", t.NumIn())
 	}
 
-	if t.In(1).Kind() != reflect.Int {
-		return fmt.Errorf("Id argument mus be an int.  Found %v instead", t.In(1))
+	if t.In(1) != typeOfContext {
+		return fmt.Errorf("Ctx argument must be of type context.Context.  Found %v instead", t.In(1))
+	}
+
+	if t.In(2).Kind() != reflect.Int {
+		return fmt.Errorf("Id argument must be an int.  Found %v instead", t.In(2))
 	}
 
 	if t.NumOut() != 2 {
@@ -117,16 +123,20 @@ func (e *endpoint) findPut() error {
 
 	t := putMethod.Type
 
-	if t.NumIn() != 3 {
-		return fmt.Errorf("Put method needs 3 arguments, has %d", t.NumIn())
+	if t.NumIn() != 4 {
+		return fmt.Errorf("Put method needs 4 arguments, has %d", t.NumIn())
 	}
 
-	if t.In(1).Kind() != reflect.Int {
-		return fmt.Errorf("Id argument mus be an int.  Found %v instead", t.In(1))
+	if t.In(1) != typeOfContext {
+		return fmt.Errorf("Ctx argument must be of type context.Context.  Found %v instead", t.In(1))
 	}
 
-	if t.In(2) != e.dataType {
-		return fmt.Errorf("data argument mus be %v.  Found %v instead", e.dataType, t.In(2))
+	if t.In(2).Kind() != reflect.Int {
+		return fmt.Errorf("Id argument mus be an int.  Found %v instead", t.In(2))
+	}
+
+	if t.In(3) != e.dataType {
+		return fmt.Errorf("data argument mus be %v.  Found %v instead", e.dataType, t.In(3))
 	}
 
 	if t.NumOut() != 1 {
@@ -149,12 +159,16 @@ func (e *endpoint) findNew() error {
 
 	t := newMethod.Type
 
-	if t.NumIn() != 2 {
-		return fmt.Errorf("New method needs 2 arguments, has %d", t.NumIn())
+	if t.NumIn() != 3 {
+		return fmt.Errorf("New method needs 3 arguments, has %d", t.NumIn())
 	}
 
-	if t.In(1) != e.dataType {
-		return fmt.Errorf("data argument mus be %v.  Found %v instead", e.dataType, t.In(1))
+	if t.In(1) != typeOfContext {
+		return fmt.Errorf("Ctx argument must be of type context.Context.  Found %v instead", t.In(1))
+	}
+
+	if t.In(2) != e.dataType {
+		return fmt.Errorf("data argument mus be %v.  Found %v instead", e.dataType, t.In(2))
 	}
 
 	if t.NumOut() != 2 {
@@ -181,12 +195,16 @@ func (e *endpoint) findDelete() error {
 
 	t := deleteMethod.Type
 
-	if t.NumIn() != 2 {
-		return fmt.Errorf("Delete method needs 2 arguments, has %d", t.NumIn())
+	if t.NumIn() != 3 {
+		return fmt.Errorf("Delete method needs 3 arguments, has %d", t.NumIn())
 	}
 
-	if t.In(1).Kind() != reflect.Int {
-		return fmt.Errorf("Id argument mus be an int.  Found %v instead", t.In(1))
+	if t.In(1) != typeOfContext {
+		return fmt.Errorf("Ctx argument must be of type context.Context.  Found %v instead", t.In(1))
+	}
+
+	if t.In(2).Kind() != reflect.Int {
+		return fmt.Errorf("Id argument mus be an int.  Found %v instead", t.In(2))
 	}
 
 	if t.NumOut() != 1 {
@@ -228,7 +246,10 @@ func (e *endpoint) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values := e.get.Func.Call([]reflect.Value{reflect.ValueOf(e.service), reflect.ValueOf(id)})
+	values := e.get.Func.Call([]reflect.Value{
+		reflect.ValueOf(e.service),
+		reflect.ValueOf(r.Context()),
+		reflect.ValueOf(id)})
 	data := values[0].Interface()
 
 	if handleCallError("Get", values[1], w) {
@@ -253,7 +274,11 @@ func (e *endpoint) handlePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values := e.put.Func.Call([]reflect.Value{reflect.ValueOf(e.service), reflect.ValueOf(id), *data})
+	values := e.put.Func.Call([]reflect.Value{
+		reflect.ValueOf(e.service),
+		reflect.ValueOf(r.Context()),
+		reflect.ValueOf(id),
+		*data})
 	if handleCallError("Put", values[0], w) {
 		return
 	}
@@ -269,7 +294,10 @@ func (e *endpoint) handleNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values := e.new.Func.Call([]reflect.Value{reflect.ValueOf(e.service), *data})
+	values := e.new.Func.Call([]reflect.Value{
+		reflect.ValueOf(e.service),
+		reflect.ValueOf(r.Context()),
+		*data})
 	if handleCallError("New", values[1], w) {
 		return
 	}
@@ -285,7 +313,10 @@ func (e *endpoint) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values := e.delete.Func.Call([]reflect.Value{reflect.ValueOf(e.service), reflect.ValueOf(id)})
+	values := e.delete.Func.Call([]reflect.Value{
+		reflect.ValueOf(e.service),
+		reflect.ValueOf(r.Context()),
+		reflect.ValueOf(id)})
 	if handleCallError("Delete", values[0], w) {
 		return
 	}

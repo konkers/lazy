@@ -2,6 +2,7 @@ package lazy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -25,15 +26,15 @@ type TestService struct {
 	FailNew bool
 }
 
-func (s *TestService) Get(id int) (*TestData, error) {
+func (s *TestService) Get(ctx context.Context, id int) (*TestData, error) {
 	data, ok := s.data[id]
 	if !ok {
-		return nil, fmt.Errorf("ID %d does not exist.", id)
+		return nil, fmt.Errorf("ID %d does not exist", id)
 	}
 	return data, nil
 }
 
-func (s *TestService) Put(id int, data *TestData) error {
+func (s *TestService) Put(ctx context.Context, id int, data *TestData) error {
 	_, ok := s.data[id]
 	if !ok {
 		return fmt.Errorf("ID %d does not exist", id)
@@ -43,7 +44,7 @@ func (s *TestService) Put(id int, data *TestData) error {
 	return nil
 }
 
-func (s *TestService) New(data *TestData) (int, error) {
+func (s *TestService) New(ctx context.Context, data *TestData) (int, error) {
 	if s.FailNew {
 		return 0, fmt.Errorf("New Failure")
 	}
@@ -55,7 +56,7 @@ func (s *TestService) New(data *TestData) (int, error) {
 	return data.ID, nil
 }
 
-func (s *TestService) Delete(id int) error {
+func (s *TestService) Delete(ctx context.Context, id int) error {
 	_, ok := s.data[id]
 	if !ok {
 		return fmt.Errorf("ID %d does not exist", id)

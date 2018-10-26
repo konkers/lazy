@@ -2,6 +2,7 @@ package lazy
 
 import (
 	"context"
+	"net/url"
 	"testing"
 )
 
@@ -180,7 +181,7 @@ func (s *TestServiceBadNewOut1) New(ctx context.Context, data *TestData) (int, s
 }
 
 //
-// New
+// Delete
 //
 
 type TestServiceNoDelete struct {
@@ -234,6 +235,74 @@ func (s *TestServiceBadDeleteOut0) Delete(ctx context.Context, id int) string {
 	return ""
 }
 
+//
+// Query
+//
+
+type TestServiceNoQuery struct {
+}
+
+func (s *TestServiceNoQuery) Get(ctx context.Context, id int) (*TestData, error) {
+	return nil, nil
+}
+
+func (s *TestServiceNoQuery) Put(ctx context.Context, id int, data *TestData) error {
+	return nil
+}
+
+func (s *TestServiceNoQuery) New(ctx context.Context, data *TestData) (int, error) {
+	return 0, nil
+}
+func (s *TestServiceNoQuery) Delete(ctx context.Context, id int) error {
+	return nil
+}
+
+type TestServiceBadQueryInNum struct {
+	TestService
+}
+
+func (s *TestServiceBadQueryInNum) Query() {
+}
+
+type TestServiceBadQueryIn0 struct {
+	TestService
+}
+
+func (s *TestServiceBadQueryIn0) Query(ctx string, args url.Values) ([]*TestData, error) {
+	return nil, nil
+}
+
+type TestServiceBadQueryIn1 struct {
+	TestService
+}
+
+func (s *TestServiceBadQueryIn1) Query(ctx context.Context, args string) ([]*TestData, error) {
+	return nil, nil
+}
+
+type TestServiceBadQueryOutNum struct {
+	TestService
+}
+
+func (s *TestServiceBadQueryOutNum) Query(ctx context.Context, args url.Values) {
+}
+
+type TestServiceBadQueryOut0 struct {
+	TestService
+}
+
+func (s *TestServiceBadQueryOut0) Query(ctx context.Context, args url.Values) (string, error) {
+	return "", nil
+}
+
+type TestServiceBadQueryOut1 struct {
+	TestService
+}
+
+func (s *TestServiceBadQueryOut1) Query(ctx context.Context, args url.Values) ([]*TestData, string) {
+	return nil, ""
+}
+
 func TestBadService(t *testing.T) {
 	r := NewRouter()
 
@@ -275,8 +344,17 @@ func TestBadService(t *testing.T) {
 		{&TestServiceBadDeleteInNum{}, "Expected error from bad Delete in arg count"},
 		{&TestServiceBadDeleteIn0{}, "Expected error from bad Delete argument 0 type"},
 		{&TestServiceBadDeleteIn1{}, "Expected error from bad Delete argument 1 type"},
-		{&TestServiceBadDeleteOutNum{}, "Expected error from bad New out arg count"},
+		{&TestServiceBadDeleteOutNum{}, "Expected error from bad Query out arg count"},
 		{&TestServiceBadDeleteOut0{}, "Expected error from bad Delete out arg 0"},
+
+		// Query
+		{&TestServiceNoQuery{}, "Expected error from service without Query"},
+		{&TestServiceBadQueryInNum{}, "Expected error from bad Query in arg count"},
+		{&TestServiceBadQueryIn0{}, "Expected error from bad Query argument 0 type"},
+		{&TestServiceBadQueryIn1{}, "Expected error from bad Query argument 1 type"},
+		{&TestServiceBadQueryOutNum{}, "Expected error from bad Query out arg count"},
+		{&TestServiceBadQueryOut0{}, "Expected error from bad Query out arg 0"},
+		{&TestServiceBadQueryOut1{}, "Expected error from bad Query out arg 1"},
 	}
 
 	for _, test := range tests {

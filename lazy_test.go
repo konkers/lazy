@@ -8,6 +8,9 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -23,7 +26,9 @@ type TestService struct {
 	nextID int
 	data   map[int]*TestData
 
-	FailNew bool
+	FailNew       bool
+	FailQuery     bool
+	LastQueryArgs url.Values
 }
 
 func (s *TestService) Get(ctx context.Context, id int) (*TestData, error) {
@@ -64,6 +69,21 @@ func (s *TestService) Delete(ctx context.Context, id int) error {
 
 	delete(s.data, id)
 	return nil
+}
+
+func (s *TestService) Query(ctx context.Context, args url.Values) ([]*TestData, error) {
+	if s.FailQuery {
+		return nil, fmt.Errorf("Query Failure")
+	}
+	s.LastQueryArgs = args
+	var results []*TestData
+	for _, d := range s.data {
+		results = append(results, d)
+	}
+
+	// Sorting this makes it easier for the tests to validate the results.
+	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
+	return results, nil
 }
 
 func NewTestService() *TestService {
@@ -219,11 +239,48 @@ func testDeleteReq(addr string, id int) (int, error) {
 func testAndValidateDeleteReq(t *testing.T, addr string, id int) {
 	delID, err := testDeleteReq(addr, id)
 	if err != nil {
-		t.Errorf("Can't create data: %v", err)
+		t.Errorf("Can't delete data: %v", err)
 	}
 	if delID != id {
 		t.Errorf("Expected id of %d, got %d instead.", id, delID)
 	}
+}
+
+func testQueryReq(addr string, args string) ([]*TestData, error) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/test/query%s", addr, args))
+	if err != nil {
+		return nil, fmt.Errorf("Get error: %v", err)
+	}
+
+	var ret struct {
+		Error string      `json:"error,omitempt"`
+		Data  []*TestData `json:"data,omitempt"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&ret)
+	if err != nil {
+		return nil, fmt.Errorf("JSON decode error: %v", err)
+	}
+
+	return ret.Data, nil
+}
+
+func testAndValidateQueryReq(t *testing.T, addr string, args string, s *TestService) {
+	data, err := testQueryReq(addr, args)
+	if err != nil {
+		t.Errorf("Query failed: %v", err)
+		return
+	}
+
+	var expectedData []*TestData
+	for _, d := range s.data {
+		expectedData = append(expectedData, d)
+	}
+	sort.Slice(expectedData, func(i, j int) bool { return expectedData[i].ID < expectedData[j].ID })
+
+	if !reflect.DeepEqual(data, expectedData) {
+		t.Errorf("Expected data not returned")
+	}
+	// TODO: validate args
 }
 
 func testBadGet(t *testing.T, addr string, uri string) {
@@ -303,6 +360,15 @@ func TestNewService(t *testing.T) {
 	if err == nil {
 		t.Errorf("Expected error from deleting non-existant record")
 	}
+
+	testAndValidateQueryReq(t, addr, "", s)
+
+	s.FailQuery = true
+	_, err = testQueryReq(addr, "")
+	if err == nil {
+		t.Errorf("Expected error from forced failure of Query")
+	}
+	s.FailQuery = false
 
 	testBadGet(t, addr, "/test/get/word")
 	testBadGet(t, addr, "/test/get/1000000000000000000000000000000000000000000000001")

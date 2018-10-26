@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"unicode"
@@ -36,6 +37,7 @@ type endpoint struct {
 	put    reflect.Method
 	new    reflect.Method
 	delete reflect.Method
+	query  reflect.Method
 }
 
 // isExported() and isExportedOrBuiltinType() from net/rpc
@@ -77,7 +79,7 @@ func sendJsonResponse(w http.ResponseWriter, data interface{}) {
 func (e *endpoint) findGet() error {
 	getMethod, ok := e.serviceType.MethodByName("Get")
 	if !ok {
-		return fmt.Errorf("Service does not have a Get Method")
+		return fmt.Errorf("Service does not have a Get method")
 	}
 
 	t := getMethod.Type
@@ -154,7 +156,7 @@ func (e *endpoint) findPut() error {
 func (e *endpoint) findNew() error {
 	newMethod, ok := e.serviceType.MethodByName("New")
 	if !ok {
-		return fmt.Errorf("Service does not have a New Method")
+		return fmt.Errorf("Service does not have a New method")
 	}
 
 	t := newMethod.Type
@@ -190,7 +192,7 @@ func (e *endpoint) findNew() error {
 func (e *endpoint) findDelete() error {
 	deleteMethod, ok := e.serviceType.MethodByName("Delete")
 	if !ok {
-		return fmt.Errorf("Service does not have a Delete Method")
+		return fmt.Errorf("Service does not have a Delete method")
 	}
 
 	t := deleteMethod.Type
@@ -216,6 +218,43 @@ func (e *endpoint) findDelete() error {
 	}
 
 	e.delete = deleteMethod
+	return nil
+}
+
+func (e *endpoint) findQuery() error {
+	queryMethod, ok := e.serviceType.MethodByName("Query")
+	if !ok {
+		return fmt.Errorf("Service does not have a Query method")
+	}
+
+	t := queryMethod.Type
+
+	if t.NumIn() != 3 {
+		return fmt.Errorf("Delete method needs 3 arguments, has %d", t.NumIn())
+	}
+
+	if t.In(1) != typeOfContext {
+		return fmt.Errorf("Ctx argument must be of type context.Context.  Found %v instead", t.In(1))
+	}
+
+	if t.In(2) != reflect.TypeOf(url.Values{}) {
+		return fmt.Errorf("Query argument mus be a map[string]string.  Found %v instead", t.In(2))
+	}
+
+	if t.NumOut() != 2 {
+		return fmt.Errorf("Delete method needs 1 return value, has %d", t.NumOut())
+	}
+
+	if t.Out(0) != reflect.SliceOf(e.dataType) {
+		return fmt.Errorf("First return type must be %v; Found %v instead",
+			reflect.SliceOf(e.dataType), t.Out(0))
+	}
+
+	if t.Out(1) != typeOfError {
+		return fmt.Errorf("Second return type must be error; Found %v instead", t.Out(1))
+	}
+
+	e.query = queryMethod
 	return nil
 }
 
@@ -324,6 +363,19 @@ func (e *endpoint) handleDelete(w http.ResponseWriter, r *http.Request) {
 	sendJsonResponse(w, id)
 }
 
+func (e *endpoint) handleQuery(w http.ResponseWriter, r *http.Request) {
+	values := e.query.Func.Call([]reflect.Value{
+		reflect.ValueOf(e.service),
+		reflect.ValueOf(r.Context()),
+		reflect.ValueOf(r.URL.Query()),
+	})
+	if handleCallError("Query", values[1], w) {
+		return
+	}
+
+	sendJsonResponse(w, values[0].Interface())
+}
+
 // NewRouter creates a new Router.
 func NewRouter() *Router {
 	return &Router{
@@ -355,12 +407,17 @@ func (r *Router) AddService(prefix string, service interface{}) error {
 	if err != nil {
 		return err
 	}
+	err = e.findQuery()
+	if err != nil {
+		return err
+	}
 
 	s := r.router.PathPrefix("/" + prefix).Subrouter()
 	s.HandleFunc("/get/{id:[0-9]+}", e.handleGet)
 	s.HandleFunc("/put/{id:[0-9]+}", e.handlePut)
 	s.HandleFunc("/new", e.handleNew)
 	s.HandleFunc("/delete/{id:[0-9]+}", e.handleDelete)
+	s.HandleFunc("/query", e.handleQuery)
 
 	return nil
 }
